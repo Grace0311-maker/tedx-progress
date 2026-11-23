@@ -350,8 +350,22 @@ function load(){
     $('v-progress').innerHTML='<div class="loading">読み込めませんでした<br><small>'+esc(e.message)+'</small></div>';
   });
 }
+/* Slackのボタンから開いたとき：?dept=部門&edit=1 / ?view=handoff / ?help=1 */
+const DEEP = (()=>{ try{ return new URLSearchParams(location.search); }catch(e){ return new URLSearchParams(''); } })();
+let deepEdit = DEEP.get('edit')==='1', deepView = DEEP.get('view')||'', deepHelp = DEEP.get('help')==='1';
+(()=>{ const d=DEEP.get('dept'); if(d && DEPTS.indexOf(d)>=0){ S.myDept=d; store('myDept', d); store('seenHelp','1'); }
+  if(DEEP.toString()){ try{ history.replaceState(null,'',location.pathname); }catch(e){} } })();
+function runDeepLink(){
+  if(deepHelp){ deepHelp=false; setTimeout(openHelp, 300); return; }
+  if(deepView){ const b=document.querySelector('nav button[data-v='+deepView+']'); deepView=''; if(b) setTimeout(()=>b.click(), 200); }
+  if(deepEdit && canEdit()){
+    if(S.data.pinRequired && !S.pin){ if(!$('modal').classList.contains('open')) askPin(); return; }
+    deepEdit=false; setTimeout(()=>openProgress(S.myDept), 300);
+  }
+}
 function setData(d){ S.data=d; if(!decDirty && d.decisions){ Object.keys(decisions).forEach(k=>delete decisions[k]); Object.assign(decisions, d.decisions); } $('sheetLink').href=d.sheetUrl||'#'; syncNav(); renderHeader(); render();
-  if(canEdit() && d.pinRequired && !S.pin && !$('modal').classList.contains('open')) askPin(); }
+  if(canEdit() && d.pinRequired && !S.pin && !$('modal').classList.contains('open')) askPin();
+  runDeepLink(); }
 
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   S.view=b.dataset.v;
