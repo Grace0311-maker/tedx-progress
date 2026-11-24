@@ -338,7 +338,7 @@ const Mock = (()=>{
   return {
     getData:()=>wait(db),
     verifyPin:p=>wait(p==='1234'),
-    logOpen:p=>{ db.opens=db.opens||{}; db.opens[p.dept]={at:'2026-11-25 08:30',name:p.name,week:['2026-11-25']}; return wait({ok:true}); },
+    logOpen:p=>{ db.opens=db.opens||{}; db.opens[p.dept]={at:'2026-11-25 08:30',name:p.name,week:['2026-11-25']}; if(p.dept==='Member'){ db.opens.members=db.opens.members||{}; db.opens.members[p.name]={at:'2026-11-25 08:30',week:['2026-11-25']}; } return wait({ok:true}); },
     saveDecisions:guard(p=>{ db.decisions=p.decisions; return wait({ok:true}); }),
     setExtra:guard(p=>{ db.extra.mode=p.mode; db.extra.on=p.mode==='on'; return wait(db); }),
     saveProgress:guard(p=>{ const d=db.depts.find(x=>x.name===p.dept); const items=p.items.filter(t=>t.text);
@@ -367,7 +367,16 @@ let deepEdit = DEEP.get('edit')==='1', deepView = DEEP.get('view')||'', deepHelp
   if(DEEP.toString()){ try{ history.replaceState(null,'',location.pathname); }catch(e){} } })();
 /** 開いた記録（1回の表示につき1回だけ） */
 let opened=false;
-function logOpen(){ if(opened || !S.myDept) return; opened=true; api('logOpen',{dept:S.myDept,name:S.myName||''}).catch(()=>{}); }
+function logOpen(){ if(opened || !S.myDept) return;
+  if(isViewer() && !S.myName){ askName(); return; }
+  opened=true; api('logOpen',{dept:S.myDept,name:S.myName||''}).catch(()=>{}); }
+function askName(){
+  openSheet('<h3>お名前を教えてください</h3><div class="hint">見るだけモードでも、誰が進捗を確認しているか分かるように名前を記録しています（入力は最初の1回だけ）。</div>'+
+    '<label class="f">名前</label><input type="text" id="nm_in" autocomplete="name" placeholder="例：田中 花子">'+
+    '<div class="err" id="nm_err"></div><div class="actions"><button class="btn" style="flex:1" onclick="submitName()">OK</button></div>');
+}
+function submitName(){ const v=$('nm_in').value.trim(); if(!v){ $('nm_err').textContent='名前を入力してください'; return; }
+  S.myName=v; store('myName', v); closeSheet(); logOpen(); }
 function runDeepLink(){
   if(deepHelp){ deepHelp=false; setTimeout(openHelp, 300); return; }
   if(deepView){ const b=document.querySelector('nav button[data-v='+deepView+']'); deepView=''; if(b) setTimeout(()=>b.click(), 200); }
@@ -688,7 +697,12 @@ function opensHtml(ds){
     return '<div class="kv" style="margin:0 2px 6px"><b style="display:inline-block;min-width:92px">'+(d.name===MEMBER?'メンバー':esc(d.name))+'</b>'+
       (x?'<span'+(old?' style="color:var(--red)"':'')+'>'+esc(x.at.slice(5).replace('-','/'))+(x.name?'（'+esc(x.name)+'）':'')+'</span>　<small>直近7日で'+((x.week||[]).length)+'日</small>'
         :'<span style="color:var(--red)">まだ開いていません</span>')+'</div>'; }).join('');
-  return '<h2>👀 アプリを最後に開いた日時</h2>'+rows+'<div class="hint">赤は1週間以上開いていない部門です。</div>';
+  const ms=o.members||{}, names=Object.keys(ms).sort((a,b)=>ms[a].at<ms[b].at?1:-1);
+  const mrows=names.map(n=>{ const x=ms[n], old=daysTo(x.at.slice(0,10))<-6;
+    return '<div class="kv" style="margin:0 2px 4px">・<b>'+esc(n)+'</b>　<span'+(old?' style="color:var(--red)"':'')+'>'+esc(x.at.slice(5).replace('-','/'))+'</span>　<small>直近7日で'+((x.week||[]).length)+'日</small></div>'; }).join('');
+  return '<h2>👀 アプリを最後に開いた日時</h2>'+rows+'<div class="hint">赤は1週間以上開いていない部門です。</div>'+
+    '<details class="later" style="margin:6px 2px 0"><summary>👥 見ているメンバー（'+names.length+'人）</summary>'+(mrows||'<div class="empty">まだいません</div>')+
+    '<div class="hint">名前を入れたメンバーだけが表示されます。一度も開いていない人はここに出ません。</div></details>';
 }
 function renderMeeting(){
   const ds = S.data.depts.filter(d=>!d.missing);
