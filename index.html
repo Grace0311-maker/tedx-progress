@@ -169,6 +169,9 @@
   .idot.red{background:var(--red)} .idot.yellow{background:var(--yellow)} .idot.green{background:var(--green)}
   .isub{margin:0 0 4px 18px}
   details.arc{background:#fff;border:1px solid var(--line);border-radius:14px;margin-top:10px;overflow:hidden}
+  details.later{margin-top:6px} details.later summary{cursor:pointer;font-size:13px;color:#666;padding:4px 0;list-style:none} details.later summary::-webkit-details-marker{display:none}
+  .laterbox{margin-top:12px;border:1px dashed var(--line);border-radius:12px;padding:10px 12px} .laterbox .lh{font-size:13px;font-weight:800;color:#666;margin-bottom:6px}
+  .lrow2{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13.5px;padding:5px 0;border-top:1px solid var(--line)} .lrow2:first-of-type{border-top:0}
   details.arc summary{list-style:none;cursor:pointer;padding:13px 14px;display:flex;justify-content:space-between;align-items:center;font-size:15px}
   details.arc summary::-webkit-details-marker{display:none}
   details.arc summary span{font-size:12px;color:#888}
@@ -255,7 +258,13 @@ function dueLabel(it){
   return '<span class="dtag'+(it.overdue?' over':'')+'">'+(it.overdue?'期限切れ ':'期限 ')+t+'</span>'+
     (it.dueCount?'<span class="dtag cnt">延期'+it.dueCount+'回</span>':'');
 }
+const SOON_DAYS=21; // これより先の期限は「今後の予定」にたたむ
+function isLater(it){ if(it.done||!it.due||it.overdue) return false; const n=daysTo(it.due); return n!==null && n>SOON_DAYS; }
 function itemsHtml(items, detail){
+  const now=(items||[]).filter(it=>!isLater(it)), later=(items||[]).filter(isLater);
+  return itemRows(now, detail)+(later.length?'<details class="later"><summary>📅 今後の予定（'+later.length+'件）</summary>'+itemRows(later, false)+'</details>':'');
+}
+function itemRows(items, detail){
   return '<div class="ilist">'+(items||[]).map(it=>{
     const c=it.done?'done':color(effOf(it)), bad=(c==='red'||c==='yellow');
     return '<div class="irow'+(it.done?' isdone':'')+'"><i class="idot '+c+'"></i><span>'+esc(it.text)+' '+dueLabel(it)+'</span></div>'+
@@ -265,11 +274,11 @@ function itemsHtml(items, detail){
 }
 function daysTo(ymd){ const d=parseYmd(ymd); if(!d) return null; const t=new Date(); t.setHours(0,0,0,0); return Math.round((d-t)/86400000); }
 function remindHtml(d, updated){
-  const open=(d.items||[]).filter(it=>!it.done);
+  const open=(d.items||[]).filter(it=>!it.done && !isLater(it));
   if(!open.length) return '';
   const over=open.filter(it=>it.overdue), soon=open.filter(it=>!it.overdue && it.due && daysTo(it.due)!==null && daysTo(it.due)<=3);
   const lines=[];
-  if(!updated) lines.push('前回の黄・赤のやることが <b>'+open.length+'件</b> 持ち越されています。状況・期限を確認し、新しいやることも書いてください。');
+  if(!updated) lines.push('前回から持ち越したやることが <b>'+open.length+'件</b> あります。状況・期限を確認し、新しいやることも書いてください。');
   if(over.length) lines.push('🔴 期限切れ：'+over.map(it=>esc(it.text)).join('、'));
   if(soon.length) lines.push('⏰ 3日以内に期限：'+soon.map(it=>esc(it.text)+'（'+md(parseYmd(it.due))+'）').join('、'));
   return lines.length?'<div class="remind">'+lines.map(l=>'<div>'+l+'</div>').join('')+'</div>':'';
@@ -329,6 +338,7 @@ const Mock = (()=>{
   return {
     getData:()=>wait(db),
     verifyPin:p=>wait(p==='1234'),
+    logOpen:p=>{ db.opens=db.opens||{}; db.opens[p.dept]={at:'2026-11-25 08:30',name:p.name,week:['2026-11-25']}; return wait({ok:true}); },
     saveDecisions:guard(p=>{ db.decisions=p.decisions; return wait({ok:true}); }),
     setExtra:guard(p=>{ db.extra.mode=p.mode; db.extra.on=p.mode==='on'; return wait(db); }),
     saveProgress:guard(p=>{ const d=db.depts.find(x=>x.name===p.dept); const items=p.items.filter(t=>t.text);
@@ -338,14 +348,14 @@ const Mock = (()=>{
     setMeetingDate:guard(p=>{ db.meetingDate=p.date; db.meetingTime=p.time; db.meetingLink=p.link; return wait(db); }),
     deleteHandoff:guard(p=>{ const rows=p.items.map(i=>i.row); db.handoffs=db.handoffs.filter(h=>rows.indexOf(h.row)===-1); return wait(db); }),
     clearProgress:guard(p=>{ Object.assign(db.depts.find(d=>d.name===p.dept),{tasks:'',items:[],status:'',reason:'',ask:'',by:'',at:''}); return wait(db); }),
-    archiveWeek:guard(p=>{ if(p.clear) db.depts.forEach(d=>{ d.items=(d.items||[]).filter(it=>!it.done && rank(effOf(it))>=2); Object.assign(d,{by:'',at:''}); if(!d.items.length) Object.assign(d,{tasks:'',status:'',reason:'',ask:''}); }); if(p.nextDate) db.meetingDate=p.nextDate; return wait(db); })
+    archiveWeek:guard(p=>{ if(p.clear) db.depts.forEach(d=>{ d.items=(d.items||[]).filter(it=>!it.done && (rank(effOf(it))>=2 || (it.due && daysTo(it.due)>=0))); Object.assign(d,{by:'',at:''}); if(!d.items.length) Object.assign(d,{tasks:'',status:'',reason:'',ask:''}); }); if(p.nextDate) db.meetingDate=p.nextDate; return wait(db); })
   };
 })();
 
 /* ================= boot ================= */
 function load(){
   const timer = setTimeout(()=>{ if(!S.data) $('v-progress').innerHTML='<div class="loading">読み込みに時間がかかっています。ページを再読み込みしてください。</div>'; },15000);
-  api('getData', S.pin).then(d=>{ clearTimeout(timer); setData(d); }).catch(e=>{
+  api('getData', S.pin).then(d=>{ clearTimeout(timer); setData(d); logOpen(); }).catch(e=>{
     clearTimeout(timer);
     $('v-progress').innerHTML='<div class="loading">読み込めませんでした<br><small>'+esc(e.message)+'</small></div>';
   });
@@ -355,6 +365,9 @@ const DEEP = (()=>{ try{ return new URLSearchParams(location.search); }catch(e){
 let deepEdit = DEEP.get('edit')==='1', deepView = DEEP.get('view')||'', deepHelp = DEEP.get('help')==='1';
 (()=>{ const d=DEEP.get('dept'); if(d && DEPTS.indexOf(d)>=0){ S.myDept=d; store('myDept', d); store('seenHelp','1'); }
   if(DEEP.toString()){ try{ history.replaceState(null,'',location.pathname); }catch(e){} } })();
+/** 開いた記録（1回の表示につき1回だけ） */
+let opened=false;
+function logOpen(){ if(opened || !S.myDept) return; opened=true; api('logOpen',{dept:S.myDept,name:S.myName||''}).catch(()=>{}); }
 function runDeepLink(){
   if(deepHelp){ deepHelp=false; setTimeout(openHelp, 300); return; }
   if(deepView){ const b=document.querySelector('nav button[data-v='+deepView+']'); deepView=''; if(b) setTimeout(()=>b.click(), 200); }
@@ -479,7 +492,7 @@ function syncNav(){
   $('navMeeting').hidden = !rep;
   if(!rep && S.view==='meeting') document.querySelector('nav button[data-v=progress]').click();
 }
-function setMyDept(d){ S.myDept=d; store('myDept', d); syncNav(); if(S.data) renderHeader(); render();
+function setMyDept(d){ S.myDept=d; store('myDept', d); syncNav(); if(S.data){ renderHeader(); logOpen(); } render();
   if(d && d!==MEMBER && S.data && S.data.pinRequired && !S.pin) askPin(); }
 function askPin(){
   openSheet('<h3>編集用パスワード</h3><div class="hint">進捗を書き込めるのはDirector・Organizerだけです。パスワードはOrganizerに聞いてください（入力は最初の1回だけ）。</div>'+
@@ -502,7 +515,8 @@ function openHelp(){
     '<li><b>自分の立場を選ぶ</b><br>Director・Organizerは自分の部門（編集用パスワードが必要）、メンバーは「見るだけ」。最初の1回だけ。</li>'+
     '<li><b>Director定例会の前日21時までに「今回の進捗を書く」</b><br>やることごとに、状況（緑・黄・赤）を選ぶ。部門の色はいちばん悪い色になります。</li>'+
     '<li><b>黄・赤のときだけ</b>、理由と「部門名：期限」を書く。<br>例：Design：11/18まで</li>'+
-    '<li><b>引き継ぎ</b>タブでは、自分に関係する行の状況を変えるだけ。</li></ol>'+
+    '<li><b>引き継ぎ</b>タブでは、自分に関係する行の状況を変えるだけ。</li>'+
+    '<li><b>運営プランのやること</b>は最初から期限つきで入っています。期限が3週間以上先のものは「📅 今後の予定」にたたまれ、近づくと自動で表に出ます。</li></ol>'+
     '<div class="legend"><div><i style="background:var(--green)"></i><b>緑</b> 予定どおり進んでいる</div>'+
     '<div><i style="background:var(--yellow)"></i><b>黄</b> 遅れそうだが、部門内で解決できる</div>'+
     '<div><i style="background:var(--red)"></i><b>赤</b> 他部門かOrganizerの判断が必要</div></div>'+
@@ -515,7 +529,7 @@ function openProgress(name){
   const d = S.data.depts.find(x=>x.name===name);
   const items = (d.items||[]).length ? d.items : [{text:'',status:'',reason:'',ask:''}];
   ED = { name, items: items.map(x=>({text:x.text||'', status:x.status||'', reason:x.reason||'', ask:x.ask||'',
-    due:x.due||'', origDue:x.due||'', done:!!x.done, dueCount:x.dueCount||0, dueNote:x.dueNote||'', newNote:''})) };
+    due:x.due||'', origDue:x.due||'', done:!!x.done, dueCount:x.dueCount||0, dueNote:x.dueNote||'', newNote:'', fold:isLater(x)})) };
   renderEditor();
 }
 function renderEditor(){
@@ -524,8 +538,9 @@ function renderEditor(){
     '<h3>'+esc(ED.name)+' の進捗</h3>'+
     '<div class="hint">やることごとに状況と期限を入れてください。部門の色は、いちばん悪い色になります。期限を過ぎても「完了」になっていないと、自動で赤になります。</div>'+
     ED.items.map((it,i)=>{
+      if(it.fold) return '';
       const c=color(it.status), bad=(c==='red'||c==='yellow');
-      return '<div class="titem"><div class="head"><span>やること '+(i+1)+'</span>'+
+      return '<div class="titem"><div class="head"><span>やること '+(ED.items.filter(x=>!x.fold).indexOf(it)+1)+'</span>'+
         (ED.items.length>1?'<button type="button" class="rm" onclick="rmItem('+i+')" title="削除">×</button>':'')+'</div>'+
         '<textarea id="t_text_'+i+'" placeholder="例：準公認団体の申請書類を作る">'+esc(it.text)+'</textarea>'+
         '<div class="status-opts">'+opts.map((o,k)=>{ const oc=color(o); return '<button type="button" class="sopt '+oc+(o===it.status?' on':'')+'" onclick="setSt('+i+','+k+')"><i class="dot"></i><b>'+esc(o.split('：')[1]||o)+'</b></button>'; }).join('')+'</div>'+
@@ -539,6 +554,8 @@ function renderEditor(){
           '<input type="text" id="t_ask_'+i+'" value="'+esc(it.ask)+'" placeholder="例：Design：11/18まで">' : '')+
       '</div>';
     }).join('')+
+    (ED.items.some(it=>it.fold)?'<div class="laterbox"><div class="lh">📅 今後の予定（期限が3週間以上先）</div>'+ED.items.map((it,i)=>it.fold?
+      '<div class="lrow2"><span>'+esc(it.text)+' '+dueLabel(it)+'</span><button type="button" class="chip" onclick="unfold('+i+')">編集</button></div>':'').join('')+'</div>':'')+
     '<button type="button" class="chip" style="margin-top:12px" onclick="addItem()">＋ やることを追加</button>'+
     '<div class="hint">「誰か手伝って」ではなく「部門名：期限」で書く。日付を入れると、3日前にその部門のSlackへリマインドが届きます。</div>'+
     '<label class="f">更新者</label><input type="text" id="p_name" value="'+esc(S.myName||d.by)+'" placeholder="名前">'+
@@ -558,6 +575,7 @@ function syncED(){
 function setSt(i,k){ syncED(); ED.items[i].status=S.data.statusOptions[k]; renderEditor(); }
 function addItem(){ syncED(); ED.items.push({text:'',status:'',reason:'',ask:'',due:'',origDue:'',done:false,dueCount:0,dueNote:'',newNote:''}); renderEditor(); }
 function rmItem(i){ syncED(); ED.items.splice(i,1); renderEditor(); }
+function unfold(i){ syncED(); ED.items[i].fold=false; renderEditor(); }
 function saveProgress(){
   syncED();
   const items = ED.items.map(it=>{
@@ -664,6 +682,14 @@ function saveHandoff(row){
 const AGENDA = [[5,'今日扱う赤・黄を確認'],[20,'止まっていることを1つずつ解決し、「誰が・何を・いつまでに」を決める'],[10,'2週間以内の引き継ぎを確認'],[5,'決まったことを書く（下の欄）']];
 const T = { idx:-1, end:0, iv:null };
 const decisions = {};
+function opensHtml(ds){
+  const o=S.data.opens; if(!o) return '';
+  const rows=ds.concat([{name:MEMBER}]).map(d=>{ const x=o[d.name], days=x?daysTo(x.at.slice(0,10)):null, old=!x||days<-6;
+    return '<div class="kv" style="margin:0 2px 6px"><b style="display:inline-block;min-width:92px">'+(d.name===MEMBER?'メンバー':esc(d.name))+'</b>'+
+      (x?'<span'+(old?' style="color:var(--red)"':'')+'>'+esc(x.at.slice(5).replace('-','/'))+(x.name?'（'+esc(x.name)+'）':'')+'</span>　<small>直近7日で'+((x.week||[]).length)+'日</small>'
+        :'<span style="color:var(--red)">まだ開いていません</span>')+'</div>'; }).join('');
+  return '<h2>👀 アプリを最後に開いた日時</h2>'+rows+'<div class="hint">赤は1週間以上開いていない部門です。</div>';
+}
 function renderMeeting(){
   const ds = S.data.depts.filter(d=>!d.missing);
   const hot = ds.filter(d=>color(d.status)==='red').concat(ds.filter(d=>color(d.status)==='yellow'));
@@ -683,6 +709,7 @@ function renderMeeting(){
     h += '<div class="card '+c+'" style="cursor:default"><div class="row1"><span class="name">'+esc(d.name)+'</span><span class="pill '+c+'">'+esc(d.status)+'</span></div>'+
       itemsHtml(badItems(d),true)+'</div>';
   });
+  h += opensHtml(ds);
   h += '<h2>未完了の引き継ぎ（'+openHo.length+'件）</h2>';
   openHo.forEach(x=>{ h += '<div class="kv" style="margin:0 2px 6px">・<b>'+esc(x.what)+'</b>　'+esc(x.from)+' → '+esc(x.to)+'　<span>'+esc(x.due)+'</span>（'+esc(x.status)+'）</div>'; });
   if(!openHo.length) h += '<div class="empty" style="padding:0 4px">なし</div>';
@@ -691,7 +718,7 @@ function renderMeeting(){
     h += '<div class="dec"><div class="row1"><span class="name" style="font-size:14.5px">'+esc(d.name)+'</span><span class="pill '+c+'">'+(d.status?esc(d.status):'未記入')+'</span></div>'+
       '<textarea style="min-height:60px" placeholder="例：Grace が テーマ説明文を 11/10 までに共有" oninput="decInput(\''+d.name+'\',this)">'+esc(decisions[d.name]||'')+'</textarea></div>';
   });
-  h += '<label class="check"><input type="checkbox" id="m_clear" checked><span>アーカイブ後、次の期間へ切り替える（完了・緑のやることは消え、黄・赤のやることだけ期限ごと持ち越し）</span></label>'+
+  h += '<label class="check"><input type="checkbox" id="m_clear" checked><span>アーカイブ後、次の期間へ切り替える（完了・緑のやることは消え、黄・赤と、期限がまだ先のやることは持ち越し）</span></label>'+
     '<label class="f" style="margin-top:4px">次の定例会の日付 <small>任意・アーカイブと同時に設定</small></label><input type="date" id="m_next">'+
     '<div class="err" id="m_err"></div>'+
     '<button class="btn red" style="margin-top:14px" onclick="confirmArchive()">今すぐアーカイブする</button>'+
