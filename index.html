@@ -169,6 +169,7 @@
   .idot.red{background:var(--red)} .idot.yellow{background:var(--yellow)} .idot.green{background:var(--green)}
   .isub{margin:0 0 4px 18px}
   details.arc{background:#fff;border:1px solid var(--line);border-radius:14px;margin-top:10px;overflow:hidden}
+  .dtag.who{background:#EEF2FF;color:#3949AB}
   details.later{margin-top:6px} details.later summary{cursor:pointer;font-size:13px;color:#666;padding:4px 0;list-style:none} details.later summary::-webkit-details-marker{display:none}
   .laterbox{margin-top:12px;border:1px dashed var(--line);border-radius:12px;padding:10px 12px} .laterbox .lh{font-size:13px;font-weight:800;color:#666;margin-bottom:6px}
   .lrow2{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13.5px;padding:5px 0;border-top:1px solid var(--line)} .lrow2:first-of-type{border-top:0}
@@ -227,6 +228,12 @@
 <script>
 /* ================= state ================= */
 const DEPTS = ['Speaker','Finance','Design','Marketing','Operation','Organizer'];
+/** 記入例の行か（メモが「（例）」で始まる）。「定例会」の「例」は対象外 */
+function isEx(m){ return /^\s*[（(]\s*例\s*[)）]/.test(String(m||'')); }
+/** 担当者の候補（dept を渡すとその部門の人を先に） */
+function memberList(dept){ const ms=(S.data&&S.data.members)||[]; return ms.filter(m=>m.dept===dept).concat(ms.filter(m=>m.dept!==dept)); }
+function memberDatalist(id, dept){ const seen={}; return '<datalist id="'+id+'">'+memberList(dept).filter(m=>!seen[m.name]&&(seen[m.name]=1)).map(m=>'<option value="'+esc(m.name)+'">'+esc(m.dept)+'</option>').join('')+'</datalist>'; }
+function whoTag(w){ return w?'<span class="dtag who">👤 '+esc(w)+'</span>':''; }
 const STATUS_HELP = {
   '緑': '予定どおり進んでいる',
   '黄': '遅れそうだが、部門内で解決できる',
@@ -267,7 +274,7 @@ function itemsHtml(items, detail){
 function itemRows(items, detail){
   return '<div class="ilist">'+(items||[]).map(it=>{
     const c=it.done?'done':color(effOf(it)), bad=(c==='red'||c==='yellow');
-    return '<div class="irow'+(it.done?' isdone':'')+'"><i class="idot '+c+'"></i><span>'+esc(it.text)+' '+dueLabel(it)+'</span></div>'+
+    return '<div class="irow'+(it.done?' isdone':'')+'"><i class="idot '+c+'"></i><span>'+esc(it.text)+' '+dueLabel(it)+whoTag(it.who)+'</span></div>'+
       (detail && it.dueCount && it.dueNote && !it.done ? '<div class="kv isub"><span>延期理由</span>'+esc(it.dueNote)+'</div>':'')+
       (detail && bad ? (it.reason?'<div class="kv isub"><span>理由</span>'+esc(it.reason)+'</div>':'')+(it.ask?'<div class="kv isub"><span>依頼</span>'+esc(it.ask)+'</div>':'') : '');
   }).join('')+'</div>';
@@ -314,6 +321,7 @@ const Mock = (()=>{
     meetingDate: '', sheetUrl:'#', pinRequired:true, decisions:{},
     extra:{ym:'2026-12',date:'2026-12-21',check:'2026-12-14',mode:'auto',auto:'',on:false},
     archive:[{week:'2026-11-16',depts:[{dept:'Speaker',tasks:'🟢 オリエンの日を決める\n🟡 Speaker Research開始',status:'黄：リスクあり',reason:'日程が未定',ask:'',decision:'Speaker Researchは11/27のオリエンと同時に開始'},{dept:'Design',tasks:'🟡 新メンバー紹介ポスター',status:'黄：リスクあり',reason:'中間試験',ask:'',decision:'12月上旬に完成させMarketingへ'}]}],
+    members:[{dept:'Design',name:'Hijiri Mukaigawara'},{dept:'Design',name:'Yue'},{dept:'Speaker',name:'Kuuga Miyamoto'},{dept:'Organizer',name:'Grace'}],
     statusOptions:['緑：順調','黄：リスクあり','赤：止まっている'],
     handoffStatusOptions:['未着手','進行中','完了'],
     depts:[
@@ -497,7 +505,7 @@ function renderProgress(){
   $('v-progress').innerHTML = h;
 }
 function syncNav(){
-  const rep = S.myDept==='Organizer' && isEditor();
+  const rep = isEditor(); // Organizer と Director（パスワード入力済み）
   $('navMeeting').hidden = !rep;
   if(!rep && S.view==='meeting') document.querySelector('nav button[data-v=progress]').click();
 }
@@ -538,7 +546,7 @@ function openProgress(name){
   const d = S.data.depts.find(x=>x.name===name);
   const items = (d.items||[]).length ? d.items : [{text:'',status:'',reason:'',ask:''}];
   ED = { name, items: items.map(x=>({text:x.text||'', status:x.status||'', reason:x.reason||'', ask:x.ask||'',
-    due:x.due||'', origDue:x.due||'', done:!!x.done, dueCount:x.dueCount||0, dueNote:x.dueNote||'', newNote:'', fold:isLater(x)})) };
+    due:x.due||'', origDue:x.due||'', done:!!x.done, dueCount:x.dueCount||0, dueNote:x.dueNote||'', newNote:'', who:x.who||'', fold:isLater(x)})) };
   renderEditor();
 }
 function renderEditor(){
@@ -557,6 +565,8 @@ function renderEditor(){
         '<div class="duerow"><label>期限 <input type="date" id="t_due_'+i+'" value="'+esc(it.due)+'" onchange="syncED();renderEditor()"></label>'+
         '<label><input type="checkbox" id="t_done_'+i+'"'+(it.done?' checked':'')+' onchange="syncED();renderEditor()"> 完了</label>'+
         (it.dueCount?'<span class="dtag cnt">これまで延期'+it.dueCount+'回</span>':'')+'</div>'+
+        '<label class="f">担当者 <small>期限の3日前に、部門のSlackでこの人に@メンションが届きます</small></label>'+
+        '<input type="text" id="t_who_'+i+'" list="memlist" value="'+esc(it.who)+'" placeholder="例：Hijiri Mukaigawara（複数は「、」区切り）">'+
         (it.origDue && it.due!==it.origDue && !it.done ? '<label class="f">期限を変える理由 <small>必須</small></label><input type="text" id="t_note_'+i+'" value="'+esc(it.newNote)+'" placeholder="例：講師の返信待ちで1週間ずれる">' : '')+
         (bad ? '<label class="f">止まっている理由</label><textarea id="t_reason_'+i+'" style="min-height:52px" placeholder="例：中間試験で作業が止まっている">'+esc(it.reason)+'</textarea>'+
           '<label class="f">誰に・いつまでに頼むか <small>'+(c==='red'?'赤のときは必須':'任意')+'</small></label>'+
@@ -565,6 +575,7 @@ function renderEditor(){
     }).join('')+
     (ED.items.some(it=>it.fold)?'<div class="laterbox"><div class="lh">📅 今後の予定（期限が3週間以上先）</div>'+ED.items.map((it,i)=>it.fold?
       '<div class="lrow2"><span>'+esc(it.text)+' '+dueLabel(it)+'</span><button type="button" class="chip" onclick="unfold('+i+')">編集</button></div>':'').join('')+'</div>':'')+
+    memberDatalist('memlist', ED.name)+
     '<button type="button" class="chip" style="margin-top:12px" onclick="addItem()">＋ やることを追加</button>'+
     '<div class="hint">「誰か手伝って」ではなく「部門名：期限」で書く。日付を入れると、3日前にその部門のSlackへリマインドが届きます。</div>'+
     '<label class="f">更新者</label><input type="text" id="p_name" value="'+esc(S.myName||d.by)+'" placeholder="名前">'+
@@ -578,11 +589,12 @@ function syncED(){
     const t=$('t_text_'+i), r=$('t_reason_'+i), a=$('t_ask_'+i), du=$('t_due_'+i), dn=$('t_done_'+i), nt=$('t_note_'+i);
     if(t) it.text=t.value; if(r) it.reason=r.value; if(a) it.ask=a.value;
     if(du) it.due=du.value; if(dn) it.done=dn.checked; if(nt) it.newNote=nt.value;
+    const wh=$('t_who_'+i); if(wh) it.who=wh.value;
   });
   const n=$('p_name'); if(n) S.myName=n.value;
 }
 function setSt(i,k){ syncED(); ED.items[i].status=S.data.statusOptions[k]; renderEditor(); }
-function addItem(){ syncED(); ED.items.push({text:'',status:'',reason:'',ask:'',due:'',origDue:'',done:false,dueCount:0,dueNote:'',newNote:''}); renderEditor(); }
+function addItem(){ syncED(); ED.items.push({text:'',status:'',reason:'',ask:'',due:'',origDue:'',done:false,dueCount:0,dueNote:'',newNote:'',who:''}); renderEditor(); }
 function rmItem(i){ syncED(); ED.items.splice(i,1); renderEditor(); }
 function unfold(i){ syncED(); ED.items[i].fold=false; renderEditor(); }
 function saveProgress(){
@@ -590,7 +602,7 @@ function saveProgress(){
   const items = ED.items.map(it=>{
       const moved = !!it.origDue && it.due!==it.origDue && !it.done;
       return {text:it.text.trim(), status:it.status, reason:it.reason.trim(), ask:it.ask.trim(), due:it.due, done:it.done,
-        dueCount:(it.dueCount||0)+(moved?1:0), dueNote:moved?it.newNote.trim():it.dueNote, _moved:moved};
+        dueCount:(it.dueCount||0)+(moved?1:0), dueNote:moved?it.newNote.trim():it.dueNote, who:(it.who||'').trim(), _moved:moved};
     }).filter(it=>it.text || it.status);
   const by = ($('p_name').value||'').trim();
   let err = !items.length ? 'やることを1つ以上書いてください' : '';
@@ -628,11 +640,11 @@ function renderHandoff(){
   if(S.filter==='to') list = list.filter(h=>String(h.to).indexOf(my)!==-1);
   let h = '<div class="chips" style="margin-top:16px">'+filters.map(f=>'<button class="chip'+(S.filter===f[0]?' on':'')+'" onclick="S.filter=\''+f[0]+'\';render()">'+f[1]+'</button>').join('')+'</div>';
   h += '<h2>部門間の引き継ぎ（「どの状態で」は受け取る側が決める）</h2>';
-  const exs = S.data.handoffs.filter(x=>/例/.test(x.memo));
+  const exs = S.data.handoffs.filter(x=>isEx(x.memo));
   if(exs.length && isEditor()) h += '<button class="chip delchip" onclick="delExamples()">記入例（'+exs.length+'件）をまとめて削除</button>';
   if(!list.length) h += '<div class="empty" style="padding:20px 4px">該当する引き継ぎはありません</div>';
   list.forEach(x=>{
-    const ex = /例/.test(x.memo);
+    const ex = isEx(x.memo);
     h += '<div class="card ho'+(isDone(x)?' done':'')+'"'+(isEditor()?' onclick="openHandoff('+x.row+')"':' style="cursor:default"')+'>'+
       '<div class="row1"><span class="what">'+esc(x.what)+(ex?'<span class="ex">記入例</span>':'')+'</span>'+
       (isEditor() ? '<select class="st" onclick="event.stopPropagation()" onchange="quickStatus('+x.row+',this.value)">'+
@@ -642,6 +654,7 @@ function renderHandoff(){
       '<div class="flow">'+esc(x.from)+'<i>→</i>'+esc(x.to)+'</div>'+
       (x.due?'<div class="kv"><span>期限</span>'+esc(x.due)+'</div>':'')+
       (x.state?'<div class="kv"><span>状態</span>'+esc(x.state)+'</div>':'')+
+      (x.who?'<div class="kv"><span>担当</span>'+esc(x.who)+'</div>':'')+
       (x.checker?'<div class="kv"><span>確認</span>'+esc(x.checker)+'</div>':'')+
       (x.memo && !ex?'<div class="kv"><span>メモ</span>'+esc(x.memo)+'</div>':'')+
     '</div>';
@@ -655,7 +668,7 @@ function quickStatus(row, val){
     .catch(e=>{ toast(e.message); load(); });
 }
 function openHandoff(row){
-  const x = row ? S.data.handoffs.find(h=>h.row===row) : {what:'',from:S.myDept||'',to:'',due:'',state:'',checker:'',status:S.data.handoffStatusOptions[0],memo:''};
+  const x = row ? S.data.handoffs.find(h=>h.row===row) : {what:'',from:S.myDept||'',to:'',due:'',state:'',checker:'',status:S.data.handoffStatusOptions[0],memo:'',who:''};
   const deptOpts = sel => '<option value=""></option>'+DEPTS.map(d=>'<option'+(d===sel?' selected':'')+'>'+d+'</option>').join('')+(sel && DEPTS.indexOf(sel)===-1?'<option selected>'+esc(sel)+'</option>':'');
   openSheet(
     '<h3>'+(row?'引き継ぎを編集':'引き継ぎを追加')+'</h3>'+
@@ -664,12 +677,13 @@ function openHandoff(row){
     '<div style="flex:1"><label class="f">誰へ</label><input type="text" id="h_to" value="'+esc(x.to)+'" placeholder="例：Marketing"></div></div>'+
     '<label class="f">いつまでに</label><input type="text" id="h_due" value="'+esc(x.due)+'" placeholder="例：11/20(金)">'+
     '<div class="askb" style="margin:8px 0 0"><input type="date" id="h_dueDate" onchange="pickDue()" style="flex:1"><span class="hint" style="flex:1.4;align-self:center;margin:0">← 日付を選ぶと自動で入ります</span></div>'+
-    '<div class="hint">「11/20」のように日付が入っていると、3日前に担当部門のSlackへリマインドが届きます。</div>'+
+    '<label class="f">担当者 <small>渡す側で作業する人</small></label><input type="text" id="h_who" list="homem" value="'+esc(x.who||'')+'" placeholder="例：Kuuga Miyamoto（複数は「、」区切り）">'+memberDatalist('homem', x.from)+
+    '<div class="hint">「11/20」のように日付が入っていると、3日前にSlackへリマインドが届きます。担当者を入れると、その人の部門チャンネルで@メンションされます。</div>'+
     '<label class="f">どの状態で <small>受け取る側が決める</small></label><input type="text" id="h_state" value="'+esc(x.state)+'" placeholder="例：SNS用の2サイズ＋編集データ">'+
     '<label class="f">受け取り確認</label><input type="text" id="h_checker" value="'+esc(x.checker)+'" placeholder="例：Marketing Director">'+
     '<label class="f">状況</label><select class="in" id="h_status">'+S.data.handoffStatusOptions.map(o=>'<option'+(o===x.status?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>'+
     '<label class="f">メモ</label><input type="text" id="h_memo" value="'+esc(/^（例）$/.test(x.memo)?'':x.memo)+'">'+
-    (row && /例/.test(x.memo)?'<div class="hint">記入例の行です。保存すると「（例）」が消えて本番の行になります。</div>':'')+
+    (row && isEx(x.memo)?'<div class="hint">記入例の行です。保存すると「（例）」が消えて本番の行になります。</div>':'')+
     (row?'<button type="button" class="btn ghost del" onclick="delHandoff('+row+')">この引き継ぎを削除</button>':'')+
     '<div class="err" id="h_err"></div>'+
     '<div class="actions"><button class="btn ghost" onclick="closeSheet()" style="flex:1">キャンセル</button><button class="btn" id="h_save" style="flex:2" onclick="saveHandoff('+row+')">保存する</button></div>'
@@ -679,7 +693,7 @@ function pickDue(){ const d=parseYmd($('h_dueDate').value); if(d) $('h_due').val
 function saveHandoff(row){
   const x = row ? S.data.handoffs.find(h=>h.row===row) : null;
   const p = { what:$('h_what').value.trim(), from:$('h_from').value, to:$('h_to').value.trim(), due:$('h_due').value.trim(),
-    state:$('h_state').value.trim(), checker:$('h_checker').value.trim(), status:$('h_status').value, memo:$('h_memo').value.trim() };
+    state:$('h_state').value.trim(), checker:$('h_checker').value.trim(), status:$('h_status').value, memo:$('h_memo').value.trim(), who:$('h_who').value.trim() };
   if(!p.what||!p.from||!p.to||!p.due){ $('h_err').textContent='「何を・誰から・誰へ・いつまでに」は必須です'; return; }
   if(row){ p.row=row; p.originalWhat=x.what; }
   busy('h_save', true);
@@ -707,13 +721,14 @@ function opensHtml(ds){
 function renderMeeting(){
   const ds = S.data.depts.filter(d=>!d.missing);
   const hot = ds.filter(d=>color(d.status)==='red').concat(ds.filter(d=>color(d.status)==='yellow'));
-  const openHo = S.data.handoffs.filter(h=>!isDone(h) && !/例/.test(h.memo));
-  let h = '<label class="f" style="margin-top:18px">次の定例会（日付・開始時刻・会議リンク）</label>'+
+  const openHo = S.data.handoffs.filter(h=>!isDone(h) && !isEx(h.memo));
+  const org = S.myDept==='Organizer';
+  let h = !org ? meetingInfoHtml()+extraHtml(false) : '<label class="f" style="margin-top:18px">次の定例会（日付・開始時刻・会議リンク）</label>'+
     '<div style="display:flex;gap:8px"><input type="date" id="m_date" value="'+esc(S.data.meetingDate)+'" style="flex:1.4"><input type="time" id="m_time" value="'+esc(S.data.meetingTime||'')+'" style="flex:1"></div>'+
     '<input type="url" id="m_link" value="'+esc(S.data.meetingLink||'')+'" placeholder="会議リンク（Zoom・Google Meetなど）" style="margin-top:8px">'+
     '<button class="btn sm" style="margin-top:8px" onclick="saveDate()">設定</button>'+
     '<div class="hint">ふだんは自動で入ります（毎月第1木曜：全体会議終了後・対面／忙しい月は第3月曜 20:30・オンライン）。日付や時刻を変えたいときだけ、ここで直して「設定」。</div>'+
-    extraHtml();
+    extraHtml(true);
   h += '<h2>進め方（タップでタイマー）</h2><div class="agenda">'+AGENDA.map((a,i)=>
     '<div class="step'+(T.idx===i?' run':'')+'" onclick="startStep('+i+')"><span class="min">'+a[0]+'分</span><span class="t">'+a[1]+'</span><span class="clock" id="clk'+i+'">'+(T.idx===i?'':'▶')+'</span></div>').join('')+'</div>'+
     '<div class="hint">緑の部門は発言なしでOK。部門内の細かい話は会議の後で。</div>';
@@ -723,15 +738,17 @@ function renderMeeting(){
     h += '<div class="card '+c+'" style="cursor:default"><div class="row1"><span class="name">'+esc(d.name)+'</span><span class="pill '+c+'">'+esc(d.status)+'</span></div>'+
       itemsHtml(badItems(d),true)+'</div>';
   });
-  h += opensHtml(ds);
+  if(org) h += opensHtml(ds);
   h += '<h2>未完了の引き継ぎ（'+openHo.length+'件）</h2>';
   openHo.forEach(x=>{ h += '<div class="kv" style="margin:0 2px 6px">・<b>'+esc(x.what)+'</b>　'+esc(x.from)+' → '+esc(x.to)+'　<span>'+esc(x.due)+'</span>（'+esc(x.status)+'）</div>'; });
   if(!openHo.length) h += '<div class="empty" style="padding:0 4px">なし</div>';
   h += '<h2>会議で決まったこと（誰が・何を・いつまでに）</h2>';
   hot.concat(ds.filter(d=>hot.indexOf(d)===-1)).forEach(d=>{ const c=color(d.status);
     h += '<div class="dec"><div class="row1"><span class="name" style="font-size:14.5px">'+esc(d.name)+'</span><span class="pill '+c+'">'+(d.status?esc(d.status):'未記入')+'</span></div>'+
-      '<textarea style="min-height:60px" placeholder="例：Grace が テーマ説明文を 11/10 までに共有" oninput="decInput(\''+d.name+'\',this)">'+esc(decisions[d.name]||'')+'</textarea></div>';
+      (org ? '<textarea style="min-height:60px" placeholder="例：Grace が テーマ説明文を 11/10 までに共有" oninput="decInput(\''+d.name+'\',this)">'+esc(decisions[d.name]||'')+'</textarea>'
+        : '<div class="kv" style="white-space:pre-wrap">'+(decisions[d.name]?esc(decisions[d.name]):'<span style="color:#999">まだありません</span>')+'</div>')+'</div>';
   });
+  if(!org){ $('v-meeting').innerHTML = h+'<div class="hint">「決まったこと」は会議中にOrganizerが書きます。</div>'; if(T.idx>=0) tick(); return; }
   h += '<label class="check"><input type="checkbox" id="m_clear" checked><span>アーカイブ後、次の期間へ切り替える（完了・緑のやることは消え、黄・赤と、期限がまだ先のやることは持ち越し）</span></label>'+
     '<label class="f" style="margin-top:4px">次の定例会の日付 <small>任意・アーカイブと同時に設定</small></label><input type="date" id="m_next">'+
     '<div class="err" id="m_err"></div>'+
@@ -751,7 +768,14 @@ function tick(){
   el.textContent = Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
   if(s===0){ clearInterval(T.iv); el.textContent='時間です'; try{ navigator.vibrate&&navigator.vibrate(300); }catch(e){} }
 }
-function extraHtml(){
+function meetingInfoHtml(){
+  const m=parseYmd(S.data.meetingDate);
+  const tm=S.data.meetingTime?' '+esc(S.data.meetingTime):S.data.meetingNote?' '+esc(S.data.meetingNote):'';
+  return '<div class="xbox" style="margin-top:18px"><b>次の定例会：'+(m?md(m)+tm:'日程調整中')+'</b>'+
+    (S.data.meetingLink && !S.data.meetingNote?'<div style="margin-top:6px"><a href="'+esc(S.data.meetingLink)+'" target="_blank" rel="noopener">会議リンク ↗</a></div>':'')+
+    (m?'<div class="hint" style="margin:4px 0 0">進捗の更新締め切り：'+md(deadline())+' 21:00</div>':'')+'</div>';
+}
+function extraHtml(btns){
   const e=S.data.extra; if(!e) return '';
   const d=parseYmd(e.date), ck=parseYmd(e.check);
   let st, why;
@@ -760,8 +784,8 @@ function extraHtml(){
   else if(e.auto){ st=e.on?'開催する':'開催しない'; why=md(ck)+'の進捗で自動判定（赤1つ以上 または 黄3部門以上で開催）'; }
   else { st='未定'; why=md(ck)+'の朝に、進捗を見て自動で決まります（赤1つ以上 または 黄3部門以上で開催）'; }
   return '<div class="xbox"><b>'+md(d)+' 20:30 オンライン定例会（第3月曜）</b>：<b>'+st+'</b><div class="hint" style="margin:4px 0 0">'+why+'</div>'+
-    '<div class="btns"><button class="chip" onclick="setExtra(\'on\')">追加する</button><button class="chip" onclick="setExtra(\'off\')">なしにする</button>'+
-    (e.mode!=='auto'?'<button class="chip" onclick="setExtra(\'auto\')">自動判定に戻す</button>':'')+'</div></div>';
+    (btns ? '<div class="btns"><button class="chip" onclick="setExtra(\'on\')">追加する</button><button class="chip" onclick="setExtra(\'off\')">なしにする</button>'+
+    (e.mode!=='auto'?'<button class="chip" onclick="setExtra(\'auto\')">自動判定に戻す</button>':'')+'</div>' : '')+'</div>';
 }
 function setExtra(mode){
   api('setExtra', w({ym:S.data.extra.ym, mode})).then(d=>{ setData(d); toast('設定しました'); }).catch(e=>toast(e.message));
@@ -804,7 +828,7 @@ function delHandoff(row){
     ()=>api('deleteHandoff', w({items:[{row:x.row, what:x.what}]})), '削除しました');
 }
 function delExamples(){
-  const exs = S.data.handoffs.filter(x=>/例/.test(x.memo));
+  const exs = S.data.handoffs.filter(x=>isEx(x.memo));
   confirmBox('記入例をまとめて削除しますか？', exs.map(x=>'・'+esc(x.what)).join('<br>')+'<br><br>この'+exs.length+'件をシートから削除します。元に戻せません。', 'まとめて削除',
     ()=>api('deleteHandoff', w({items:exs.map(x=>({row:x.row, what:x.what}))})), '記入例を削除しました');
 }
